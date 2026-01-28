@@ -17,7 +17,7 @@ const dbConfig = {
   port: 1436,
   database: 'SCHOOL_PROJECT_TESTING',
   options: {
-    encrypt: true, // <--- CHANGED: Must be true to match VS Code
+    encrypt: false, // <--- CHANGED: Must be true to match VS Code
     trustServerCertificate: true, // <--- CHANGED: Required for IP address connections
     enableArithAbort: true,
     connectTimeout: 30000, // Increased to 30 seconds
