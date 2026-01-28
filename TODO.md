@@ -1,0 +1,6 @@
+- [x] Add currentScreen state to manage 'login', 'register', 'dashboard'
+- [x] Modify Sign Up button to navigate to registration screen
+- [x] Add RegistrationScreen component with form fields and buttons
+- [x] Add conditional rendering for registration screen
+- [x] Update styles to include registration screen styles
+- [x] Test navigation between screens
