@@ -38,7 +38,7 @@ async function connectDB() {
 // Connect immediately when server starts
 connectDB();
 
-// --- 1. SIGNUP API (Existing) ---
+// --- 1. SIGNUP API ---
 app.post('/signup', async (req, res) => {
   console.log('📩 Signup Data received for:', req.body.userName);
 
@@ -104,7 +104,7 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// --- 2. LOGIN API (NEW!) ---
+// --- 2. LOGIN API ---
 app.post('/login', async (req, res) => {
   console.log('🔑 Login Attempt for:', req.body.userName);
 
@@ -124,23 +124,20 @@ app.post('/login', async (req, res) => {
       .request()
       .input('UserName', sql.NVarChar, userName)
       .input('Password', sql.NVarChar, password).query(`
-                SELECT id, name, UserName, Class_Id, school 
-                FROM dbo.signup 
-                WHERE UserName = @UserName AND password = @Password
-            `);
+        SELECT id, name, UserName, Class_Id, school 
+        FROM dbo.signup 
+        WHERE UserName = @UserName AND password = @Password
+      `);
 
     if (result.recordset.length > 0) {
-      // User Found!
       const student = result.recordset[0];
       console.log('✅ Login Success:', student.name);
-
       res.json({
         success: true,
         message: 'Login Successful',
-        student: student, // Send student info back to app
+        student: student,
       });
     } else {
-      // User Not Found or Wrong Password
       console.log('❌ Login Failed: Invalid Credentials');
       res
         .status(401)
@@ -148,6 +145,94 @@ app.post('/login', async (req, res) => {
     }
   } catch (err) {
     console.error('❌ SQL Error (Login):', err.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+// --- 3. FETCH EXAM QUESTIONS (From dbo.objectiveques) ---
+app.post('/api/questions', async (req, res) => {
+  // Frontend sends: { subject: 'Maths', count: 10 }
+  const { subject, count } = req.body;
+
+  console.log(`📚 Fetching questions for Subject: ${subject}`);
+
+  try {
+    let pool = await sql.connect(dbConfig);
+
+    // Note: We use AS aliases to match the frontend expectations (question_text, option_a, etc.)
+    const result = await pool.request().input('Subject', sql.NVarChar, subject)
+      .query(`
+        SELECT TOP ${count || 10} 
+            id, 
+            question AS question_text, 
+            option1 AS option_a, 
+            option2 AS option_b, 
+            option3 AS option_c, 
+            option4 AS option_d
+        FROM [dbo].[objectiveques]
+        WHERE subjectName_Id = @Subject 
+        AND isActive = 1
+        ORDER BY NEWID()
+      `);
+
+    console.log(`✅ Found ${result.recordset.length} questions for ${subject}`);
+    res.json({ success: true, questions: result.recordset });
+  } catch (err) {
+    console.error('❌ SQL Error (Fetch Questions):', err.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+// --- 4. SUBMIT EXAM & CALCULATE SCORE ---
+app.post('/api/submit-exam', async (req, res) => {
+  const { answers } = req.body;
+  // Format received: { "101": "Blue", "102": "Paris" }
+
+  console.log('📝 Submitting Exam...');
+
+  try {
+    let pool = await sql.connect(dbConfig);
+    let score = 0;
+    let total = Object.keys(answers).length;
+
+    // Loop through every answer the student submitted
+    for (const [questionId, userOption] of Object.entries(answers)) {
+      // Fetch the CORRECT answer for this specific question ID
+      const result = await pool
+        .request()
+        .input('QID', sql.Int, questionId)
+        .query(
+          'SELECT correctanswer FROM [dbo].[objectiveques] WHERE id = @QID',
+        );
+
+      if (result.recordset.length > 0) {
+        const dbCorrectAnswer = result.recordset[0].correctanswer;
+
+        // Compare User Answer vs DB Answer (Trimming spaces to be safe)
+        if (String(userOption).trim() === String(dbCorrectAnswer).trim()) {
+          score++;
+        }
+      }
+    }
+
+    // Determine Feedback Message
+    const percentage = total === 0 ? 0 : (score / total) * 100;
+    let message = 'Keep Trying!';
+    if (percentage >= 80) message = 'Excellent Work!';
+    else if (percentage >= 50) message = 'Good Job!';
+    else message = 'Practice More';
+
+    console.log(`✅ Exam Graded: Score ${score}/${total}`);
+
+    res.json({
+      success: true,
+      score: score,
+      total: total,
+      message: message,
+      percentage: percentage,
+    });
+  } catch (err) {
+    console.error('❌ SQL Error (Submit Exam):', err.message);
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });

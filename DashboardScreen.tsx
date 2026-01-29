@@ -12,13 +12,25 @@ import {
   FlatList
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
-// --- TYPES ---
+// IMPORT THE EXAM SCREEN (Make sure ExamScreen.tsx is in the same folder)
+import ExamScreen from './ExamScreen';
+
+// --- TYPES & INTERFACES ---
 interface Subject {
   id: number;
   name: string;
   icon: string;
+}
+
+interface Report {
+  id: number;
+  subject: string;
+  date: string;
+  correct: number;
+  wrong: number;
+  total: number;
 }
 
 interface DashboardProps {
@@ -35,10 +47,10 @@ const SUBJECTS: Subject[] = [
   { id: 6, name: 'Geography', icon: 'earth' },
 ];
 
-const QUESTION_COUNTS = [10, 20, 30, 50];
+const QUESTION_COUNTS: number[] = [10, 20, 30, 50];
 
 // --- MOCK REPORT DATA ---
-const REPORT_DATA = [
+const REPORT_DATA: Report[] = [
     { id: 1, subject: 'English', date: '21-Jan-2026', correct: 5, wrong: 5, total: 10 },
     { id: 2, subject: 'English', date: '10-Jan-2026', correct: 17, wrong: 3, total: 20 },
     { id: 3, subject: 'English', date: '10-Jan-2026', correct: 9, wrong: 1, total: 10 },
@@ -48,35 +60,36 @@ const REPORT_DATA = [
     { id: 7, subject: 'Science', date: '15-Jan-2026', correct: 10, wrong: 0, total: 10 },
 ];
 
-export default function DashboardScreen({ onLogout }: DashboardProps) {
+const DashboardScreen: React.FC<DashboardProps> = ({ onLogout }) => {
   
+  // Navigation & UI State
   const [currentView, setCurrentView] = useState<string>('Test Board'); 
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
-  const [reportType, setReportType] = useState<string>('Last'); 
+  const [reportType, setReportType] = useState<'Last' | 'Subject' | 'Date'>('Last'); 
   
   // --- FILTER STATES ---
-  const [fromDate, setFromDate] = useState(new Date());
-  const [toDate, setToDate] = useState(new Date());
-  const [showPicker, setShowPicker] = useState(false);
+  const [fromDate, setFromDate] = useState<Date>(new Date());
+  const [toDate, setToDate] = useState<Date>(new Date());
+  const [showPicker, setShowPicker] = useState<boolean>(false);
   const [pickerMode, setPickerMode] = useState<'from' | 'to'>('from');
   
   // Subject Filter State for Reports
   const [filterSubject, setFilterSubject] = useState<string>('English');
-  const [showResults, setShowResults] = useState(true);
+  const [showResults, setShowResults] = useState<boolean>(true);
 
   // --- LANDING PAGE STATE ---
   const [selectedSubject, setSelectedSubject] = useState<string>('Tamil'); 
   const [questionCount, setQuestionCount] = useState<number>(10);
   
   // Modal States
-  const [showSubjectModal, setShowSubjectModal] = useState(false);
-  const [showCountModal, setShowCountModal] = useState(false);
+  const [showSubjectModal, setShowSubjectModal] = useState<boolean>(false);
+  const [showCountModal, setShowCountModal] = useState<boolean>(false);
   
-  // NEW: Modal for Filter Subject (Report Screen)
-  const [showFilterSubjectModal, setShowFilterSubjectModal] = useState(false);
+  // Modal for Filter Subject (Report Screen)
+  const [showFilterSubjectModal, setShowFilterSubjectModal] = useState<boolean>(false);
 
   // --- HELPERS ---
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date): string => {
     const day = date.getDate().toString().padStart(2, '0');
     const month = date.toLocaleString('default', { month: 'short' });
     const year = date.getFullYear();
@@ -88,8 +101,14 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
     setIsDrawerOpen(false);
   };
 
+  // --- HANDLE START EXAM ---
   const handleStartExam = () => {
-    Alert.alert("Starting Exam", `Subject: ${selectedSubject}\nQuestions: ${questionCount}`);
+    // Close dropdowns/modals
+    setShowSubjectModal(false);
+    setShowCountModal(false);
+    
+    // Switch View to Exam
+    setCurrentView('Exam');
   };
 
   // --- DATE PICKER HANDLERS ---
@@ -98,7 +117,7 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
       setShowPicker(true);
   };
 
-  const onDateChange = (event: any, selectedDate?: Date) => {
+  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
       setShowPicker(false);
       if (selectedDate) {
           pickerMode === 'from' ? setFromDate(selectedDate) : setToDate(selectedDate);
@@ -106,18 +125,17 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
   };
 
   // --- FILTER LOGIC ---
-  const getFilteredReports = () => {
-      // If we haven't clicked search yet for these types, return empty
+  const getFilteredReports = (): Report[] => {
       if (!showResults && (reportType === 'Date' || reportType === 'Subject')) return [];
 
       switch(reportType) {
           case 'Last': 
-              return [REPORT_DATA[0]]; // Always show the first one
+              return [REPORT_DATA[0]]; 
           case 'Subject': 
-              // STRICT FILTER: Only show items matching the dropdown
               return REPORT_DATA.filter(r => r.subject === filterSubject); 
           case 'Date': 
-              return REPORT_DATA; // In a real app, check date range here
+              // Logic to filter by date range would go here in a real app
+              return REPORT_DATA; 
           default: 
               return REPORT_DATA;
       }
@@ -125,9 +143,8 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
 
   const currentReports = getFilteredReports();
 
-  const switchTab = (type: string) => {
+  const switchTab = (type: 'Last' | 'Subject' | 'Date') => {
       setReportType(type);
-      // "Last Test" shows immediately, others wait for Search button
       setShowResults(type === 'Last'); 
   };
 
@@ -135,18 +152,20 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
     <View style={styles.container}>
       <StatusBar backgroundColor="#002b5c" barStyle="light-content" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <TouchableOpacity onPress={() => setIsDrawerOpen(true)}>
-            <MaterialCommunityIcons name="menu" size={30} color="white" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{currentView === 'Test Board' ? 'AIM SCHOOL' : currentView}</Text>
-          <TouchableOpacity onPress={onLogout}>
-            <MaterialCommunityIcons name="logout" size={24} color="white" />
-          </TouchableOpacity>
+      {/* HEADER - Hide in Exam Mode */}
+      {currentView !== 'Exam' && (
+        <View style={styles.header}>
+            <View style={styles.headerTopRow}>
+            <TouchableOpacity onPress={() => setIsDrawerOpen(true)}>
+                <MaterialCommunityIcons name="menu" size={30} color="white" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>{currentView}</Text>
+            <TouchableOpacity onPress={onLogout}>
+                <MaterialCommunityIcons name="logout" size={24} color="white" />
+            </TouchableOpacity>
+            </View>
         </View>
-      </View>
+      )}
 
       <View style={styles.contentArea}>
         
@@ -154,7 +173,6 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
         {currentView === 'Test Board' && (
           <ScrollView contentContainerStyle={styles.landingScroll}>
             
-            {/* The Main Card (Blue Header / White Body) */}
             <View style={[styles.landingCard, { padding: 0, overflow: 'hidden', backgroundColor: 'white' }]}>
                 
                 {/* 1. BLUE HEADER SECTION */}
@@ -205,7 +223,17 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
           </ScrollView>
         )}
 
-        {/* VIEW 2: REPORT SCREEN */}
+        {/* VIEW 2: EXAM SCREEN (CONNECTED!) */}
+        {currentView === 'Exam' && (
+            <ExamScreen 
+                subject={selectedSubject}
+                classId="12" // You can make this dynamic later based on user profile
+                count={questionCount}
+                onFinish={() => setCurrentView('Test Board')}
+            />
+        )}
+
+        {/* VIEW 3: REPORT SCREEN */}
         {currentView === 'Report' && (
           <View style={styles.reportContainer}>
             {/* Filter Tabs */}
@@ -351,16 +379,16 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
                 <View style={styles.modalContent}>
                     <Text style={styles.modalTitle}>No. of Questions</Text>
                     {QUESTION_COUNTS.map(count => (
-                         <TouchableOpacity key={count} style={styles.modalItem} onPress={() => { setQuestionCount(count); setShowCountModal(false); }}>
+                          <TouchableOpacity key={count} style={styles.modalItem} onPress={() => { setQuestionCount(count); setShowCountModal(false); }}>
                              <Text style={styles.modalItemText}>{count}</Text>
-                         </TouchableOpacity>
+                          </TouchableOpacity>
                     ))}
                 </View>
             </View>
          </TouchableWithoutFeedback>
       </Modal>
 
-      {/* 3. REPORT FILTER Subject Modal (NEW) */}
+      {/* 3. REPORT FILTER Subject Modal */}
       <Modal visible={showFilterSubjectModal} transparent animationType="fade">
          <TouchableWithoutFeedback onPress={() => setShowFilterSubjectModal(false)}>
             <View style={styles.modalOverlay}>
@@ -411,7 +439,7 @@ export default function DashboardScreen({ onLogout }: DashboardProps) {
 
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa' },
@@ -536,3 +564,5 @@ const styles = StyleSheet.create({
   drawerFooter: { position: 'absolute', bottom: 20, left: 0, right: 0, alignItems: 'center' },
   versionText: { color: '#ccc', fontSize: 12 },
 });
+
+export default DashboardScreen;
