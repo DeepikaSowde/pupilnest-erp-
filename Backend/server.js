@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5005;
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- CORRECTED CONFIGURATION ---
+// --- DATABASE CONFIGURATION ---
 const dbConfig = {
   user: 'Tester',
   password: 'Asdfg@2026hjkl',
@@ -17,10 +17,10 @@ const dbConfig = {
   port: 1436,
   database: 'SCHOOL_PROJECT_TESTING',
   options: {
-    encrypt: false, // <--- CHANGED: Must be true to match VS Code
-    trustServerCertificate: true, // <--- CHANGED: Required for IP address connections
+    encrypt: false,
+    trustServerCertificate: true,
     enableArithAbort: true,
-    connectTimeout: 30000, // Increased to 30 seconds
+    connectTimeout: 30000,
   },
 };
 
@@ -38,9 +38,9 @@ async function connectDB() {
 // Connect immediately when server starts
 connectDB();
 
-// API Endpoint
+// --- 1. SIGNUP API (Existing) ---
 app.post('/signup', async (req, res) => {
-  console.log('📩 Data received for:', req.body.userName);
+  console.log('📩 Signup Data received for:', req.body.userName);
 
   try {
     const {
@@ -88,19 +88,67 @@ app.post('/signup', async (req, res) => {
       .input('SchoolAddress', sql.NVarChar, schoolAddress)
       .input('Contact', sql.NVarChar, contact)
       .input('OtherStream', sql.NVarChar, stream).query(`
-                INSERT INTO dbo.signup 
-                (name, fatherName, UserName, password, confirmPassword, email, aadhaar, gender, dateOfBirth, address, Class_Id, board, school, schoolAddress, contact, otherStream, created_at, updated_at)
-                VALUES 
-                (@Name, @FatherName, @UserName, @Password, @ConfirmPassword, @Email, @Aadhaar, @Gender, @DateOfBirth, @Address, @Class_Id, @Board, @School, @SchoolAddress, @Contact, @OtherStream, GETDATE(), GETDATE())
-            `);
+        INSERT INTO dbo.signup 
+        (name, fatherName, UserName, password, confirmPassword, email, aadhaar, gender, dateOfBirth, address, Class_Id, board, school, schoolAddress, contact, otherStream, created_at, updated_at)
+        VALUES 
+        (@Name, @FatherName, @UserName, @Password, @ConfirmPassword, @Email, @Aadhaar, @Gender, @DateOfBirth, @Address, @Class_Id, @Board, @School, @SchoolAddress, @Contact, @OtherStream, GETDATE(), GETDATE())
+      `);
 
     console.log('✅ Inserted:', userName);
     res.json({ success: true, message: 'Student registered successfully!' });
   } catch (err) {
-    console.error('❌ SQL Error:', err.message);
+    console.error('❌ SQL Error (Signup):', err.message);
     res
       .status(500)
       .json({ success: false, message: 'Database Error', error: err.message });
+  }
+});
+
+// --- 2. LOGIN API (NEW!) ---
+app.post('/login', async (req, res) => {
+  console.log('🔑 Login Attempt for:', req.body.userName);
+
+  const { userName, password } = req.body;
+
+  if (!userName || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: 'Username and Password required' });
+  }
+
+  try {
+    let pool = await sql.connect(dbConfig);
+
+    // Check if user exists with matching password
+    const result = await pool
+      .request()
+      .input('UserName', sql.NVarChar, userName)
+      .input('Password', sql.NVarChar, password).query(`
+                SELECT id, name, UserName, Class_Id, school 
+                FROM dbo.signup 
+                WHERE UserName = @UserName AND password = @Password
+            `);
+
+    if (result.recordset.length > 0) {
+      // User Found!
+      const student = result.recordset[0];
+      console.log('✅ Login Success:', student.name);
+
+      res.json({
+        success: true,
+        message: 'Login Successful',
+        student: student, // Send student info back to app
+      });
+    } else {
+      // User Not Found or Wrong Password
+      console.log('❌ Login Failed: Invalid Credentials');
+      res
+        .status(401)
+        .json({ success: false, message: 'Invalid Username or Password' });
+    }
+  } catch (err) {
+    console.error('❌ SQL Error (Login):', err.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
 
