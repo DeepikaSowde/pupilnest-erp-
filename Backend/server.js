@@ -153,7 +153,7 @@ app.post('/login', async (req, res) => {
 });
 
 // ==========================================
-// 2. EXAM ROUTES (Connected to objectiveques)
+// 2. EXAM ROUTES
 // ==========================================
 
 // FETCH QUESTIONS API
@@ -166,12 +166,9 @@ app.post('/api/questions', async (req, res) => {
   try {
     let pool = await sql.connect(dbConfig);
 
-    // IMPORTANT: We use AS aliases to match the frontend expectations (option_a, option_b)
-    // We do NOT select 'correctanswer' so the user cannot cheat.
-    const result =
-      await // .input('ClassId', sql.NVarChar, classId) // Uncomment to filter by Class
-      pool.request().input('SubjectId', sql.Int, subject) // Ensure this matches your DB type (Int vs NVarChar)
-        .query(`
+    // Fetch random questions, HIDING correctanswer
+    const result = await pool.request().input('SubjectId', sql.Int, subject)
+      .query(`
         SELECT TOP ${count || 10} 
             id, 
             question AS question_text, 
@@ -181,7 +178,6 @@ app.post('/api/questions', async (req, res) => {
             option4 AS option_d
         FROM [dbo].[objectiveques]
         WHERE subjectName_Id = @SubjectId 
-        -- AND ClassName_Id = @ClassId 
         AND isActive = 1
         ORDER BY NEWID()
       `);
@@ -194,19 +190,22 @@ app.post('/api/questions', async (req, res) => {
   }
 });
 
-// SUBMIT EXAM API
+// SUBMIT EXAM API (Saves to [student_score_result])
 app.post('/api/submit-exam', async (req, res) => {
-  const { answers } = req.body;
-  // answers format: { "101": "Paris", "102": "Blue" }
+  // 1. Receive data from App
+  const { answers, studentId, subjectId, classId, timeTaken } = req.body;
 
-  console.log('📝 Submitting Exam...');
+  console.log('📝 Submitting Exam for Student ID:', studentId);
 
   try {
     let pool = await sql.connect(dbConfig);
     let score = 0;
-    let total = Object.keys(answers).length;
 
-    // Iterate through user answers and check against DB
+    // Calculate total attempted questions based on answers received
+    // (If you want total *available* questions, pass 'count' from frontend)
+    let totalQuestions = Object.keys(answers).length;
+
+    // 2. Calculate Score
     for (const [questionId, userOption] of Object.entries(answers)) {
       const result = await pool
         .request()
@@ -217,27 +216,49 @@ app.post('/api/submit-exam', async (req, res) => {
 
       if (result.recordset.length > 0) {
         const dbCorrectAnswer = result.recordset[0].correctanswer;
-
-        // Compare (Trim spaces to avoid errors like "Answer " vs "Answer")
+        // Compare Answer (Trim spaces for safety)
         if (String(userOption).trim() === String(dbCorrectAnswer).trim()) {
           score++;
         }
       }
     }
 
-    // Determine Message
-    const percentage = total === 0 ? 0 : (score / total) * 100;
+    const wrongAnswers = totalQuestions - score;
+
+    // 3. Insert into [student_score_result]
+    // We default TestType to 'Online' and Time to '10:00' (Total duration allowed)
+    // TimeTake is the actual time the student spent
+    await pool
+      .request()
+      .input('StudentId', sql.Int, studentId)
+      .input('SubjectId', sql.Int, subjectId)
+      .input('ClassId', sql.NVarChar, classId)
+      .input('TestType', sql.NVarChar, 'Online')
+      .input('NumOfQuestion', sql.Int, totalQuestions)
+      .input('NoOfAnswered', sql.Int, totalQuestions)
+      .input('Correct', sql.Int, score)
+      .input('Wrong', sql.Int, wrongAnswers)
+      .input('Time', sql.NVarChar, '10:00')
+      .input('TimeTake', sql.NVarChar, timeTaken || '00:00').query(`
+        INSERT INTO [dbo].[student_score_result]
+        (StudentId, subjectName_Id, ClassName_Id, TestType, NumOfQuestion, NoOfAnswered, NoOfCorrectAnswered, NoOfWrongAnswered, Time, Time_Take, created_at, updated_at)
+        VALUES 
+        (@StudentId, @SubjectId, @ClassId, @TestType, @NumOfQuestion, @NoOfAnswered, @Correct, @Wrong, @Time, @TimeTake, GETDATE(), GETDATE())
+      `);
+
+    console.log(`✅ Result Saved! Score: ${score}/${totalQuestions}`);
+
+    // 4. Send Response back to App
+    const percentage =
+      totalQuestions === 0 ? 0 : (score / totalQuestions) * 100;
     let message = 'Keep Trying!';
     if (percentage >= 80) message = 'Excellent Work!';
     else if (percentage >= 50) message = 'Good Job!';
-    else message = 'Practice More';
-
-    console.log(`✅ Exam Graded: Score ${score}/${total}`);
 
     res.json({
       success: true,
       score: score,
-      total: total,
+      total: totalQuestions,
       message: message,
       percentage: percentage,
     });
