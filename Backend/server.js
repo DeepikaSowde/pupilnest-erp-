@@ -267,7 +267,56 @@ app.post('/api/submit-exam', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
+// ==========================================
+// 3. REPORT ROUTES
+// ==========================================
 
+app.post('/api/reports', async (req, res) => {
+  const { studentId, reportType, subjectId, fromDate, toDate } = req.body;
+
+  console.log(`📊 Fetching Report: ${reportType} for Student ${studentId}`);
+
+  try {
+    let pool = await sql.connect(dbConfig);
+    let query = `
+      SELECT 
+        id, 
+        subjectName_Id as subjectId,
+        NumOfQuestion as total,
+        NoOfCorrectAnswered as correct,
+        NoOfWrongAnswered as wrong,
+        score = (CAST(NoOfCorrectAnswered AS FLOAT) / NULLIF(NumOfQuestion, 0)) * 100,
+        FORMAT(created_at, 'dd-MMM-yyyy') as date
+      FROM [dbo].[student_score_result]
+      WHERE StudentId = @StudentId
+    `;
+
+    // Add Dynamic Filters based on Report Type
+    if (reportType === 'Last Test Report') {
+      query += ` ORDER BY created_at DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY`;
+    } else if (reportType === 'Subject Wise Report') {
+      query += ` AND subjectName_Id = @SubjectId ORDER BY created_at DESC`;
+    } else if (reportType === 'Date to Date Report') {
+      query += ` AND created_at BETWEEN @FromDate AND @ToDate ORDER BY created_at DESC`;
+    } else {
+      // Default: Last 10 records
+      query += ` ORDER BY created_at DESC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY`;
+    }
+
+    const request = pool.request().input('StudentId', sql.Int, studentId);
+
+    if (subjectId) request.input('SubjectId', sql.Int, subjectId);
+    if (fromDate) request.input('FromDate', sql.Date, fromDate);
+    if (toDate) request.input('ToDate', sql.Date, toDate);
+
+    const result = await request.query(query);
+
+    res.json({ success: true, data: result.recordset });
+  } catch (err) {
+    console.error('❌ SQL Error (Reports):', err.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

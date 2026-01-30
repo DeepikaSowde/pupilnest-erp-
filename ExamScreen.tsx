@@ -24,9 +24,10 @@ interface Question {
 
 interface ExamScreenProps {
   subject: string;
-  subjectId: number; // Added this!
+  subjectId: number; 
   classId: string;
   count: number;
+  studentId: number; // <--- ADDED: Required by backend
   onFinish: () => void;
 }
 
@@ -40,7 +41,7 @@ interface ResultData {
 
 type AnswersState = Record<number, string>;
 
-const ExamScreen: React.FC<ExamScreenProps> = ({ subject, subjectId, classId, count, onFinish }) => {
+const ExamScreen: React.FC<ExamScreenProps> = ({ subject, subjectId, classId, count, studentId, onFinish }) => {
   
   const [loading, setLoading] = useState<boolean>(true);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -66,7 +67,7 @@ const ExamScreen: React.FC<ExamScreenProps> = ({ subject, subjectId, classId, co
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          subject: subjectId, // Sends ID (e.g. 2)
+          subject: subjectId, 
           classId: classId, 
           count: count 
         }),
@@ -112,22 +113,41 @@ const ExamScreen: React.FC<ExamScreenProps> = ({ subject, subjectId, classId, co
     setAnswers({ ...answers, [currentQ.id]: optionText });
   };
 
-  // 4. SUBMIT EXAM
+  // 4. SUBMIT EXAM (FIXED LOGIC)
   const submitExam = async () => {
     setSubmitting(true);
+
+    // Calculate time taken string (e.g. "05:30")
+    const timeTakenSeconds = 600 - timeLeft;
+    const minutes = Math.floor(timeTakenSeconds / 60).toString().padStart(2, '0');
+    const seconds = (timeTakenSeconds % 60).toString().padStart(2, '0');
+    const timeTakenFormatted = `${minutes}:${seconds}`;
+
     try {
       const API_URL = 'https://pupilnest-erp.onrender.com/api/submit-exam';
+      
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: answers }),
+        body: JSON.stringify({ 
+            answers: answers,
+            studentId: studentId, // <--- SENDING ID
+            subjectId: subjectId, // <--- SENDING SUBJECT ID
+            classId: classId,     // <--- SENDING CLASS ID
+            timeTaken: timeTakenFormatted // <--- SENDING TIME
+        }),
       });
+      
       const data = await response.json();
+      
       if (data.success) {
         setResultData(data);
         setShowResult(true);
+      } else {
+        Alert.alert("Error", "Submission failed. Server could not save result.");
       }
     } catch (error) {
+      console.error(error);
       Alert.alert("Error", "Submission failed.");
     } finally {
       setSubmitting(false);
