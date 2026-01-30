@@ -38,7 +38,11 @@ async function connectDB() {
 // Connect immediately when server starts
 connectDB();
 
-// --- 1. SIGNUP API ---
+// ==========================================
+// 1. AUTHENTICATION ROUTES
+// ==========================================
+
+// SIGNUP API
 app.post('/signup', async (req, res) => {
   console.log('📩 Signup Data received for:', req.body.userName);
 
@@ -104,7 +108,7 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// --- 2. LOGIN API ---
+// LOGIN API
 app.post('/login', async (req, res) => {
   console.log('🔑 Login Attempt for:', req.body.userName);
 
@@ -119,7 +123,6 @@ app.post('/login', async (req, res) => {
   try {
     let pool = await sql.connect(dbConfig);
 
-    // Check if user exists with matching password
     const result = await pool
       .request()
       .input('UserName', sql.NVarChar, userName)
@@ -149,19 +152,26 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- 3. FETCH EXAM QUESTIONS (From dbo.objectiveques) ---
-app.post('/api/questions', async (req, res) => {
-  // Frontend sends: { subject: 'Maths', count: 10 }
-  const { subject, count } = req.body;
+// ==========================================
+// 2. EXAM ROUTES (Connected to objectiveques)
+// ==========================================
 
-  console.log(`📚 Fetching questions for Subject: ${subject}`);
+// FETCH QUESTIONS API
+app.post('/api/questions', async (req, res) => {
+  // Frontend sends: { subject: 2, count: 10, classId: '12' }
+  const { subject, count, classId } = req.body;
+
+  console.log(`📚 Fetching questions for Subject ID: ${subject}`);
 
   try {
     let pool = await sql.connect(dbConfig);
 
-    // Note: We use AS aliases to match the frontend expectations (question_text, option_a, etc.)
-    const result = await pool.request().input('Subject', sql.NVarChar, subject)
-      .query(`
+    // IMPORTANT: We use AS aliases to match the frontend expectations (option_a, option_b)
+    // We do NOT select 'correctanswer' so the user cannot cheat.
+    const result =
+      await // .input('ClassId', sql.NVarChar, classId) // Uncomment to filter by Class
+      pool.request().input('SubjectId', sql.Int, subject) // Ensure this matches your DB type (Int vs NVarChar)
+        .query(`
         SELECT TOP ${count || 10} 
             id, 
             question AS question_text, 
@@ -170,12 +180,13 @@ app.post('/api/questions', async (req, res) => {
             option3 AS option_c, 
             option4 AS option_d
         FROM [dbo].[objectiveques]
-        WHERE subjectName_Id = @Subject 
+        WHERE subjectName_Id = @SubjectId 
+        -- AND ClassName_Id = @ClassId 
         AND isActive = 1
         ORDER BY NEWID()
       `);
 
-    console.log(`✅ Found ${result.recordset.length} questions for ${subject}`);
+    console.log(`✅ Found ${result.recordset.length} questions`);
     res.json({ success: true, questions: result.recordset });
   } catch (err) {
     console.error('❌ SQL Error (Fetch Questions):', err.message);
@@ -183,10 +194,10 @@ app.post('/api/questions', async (req, res) => {
   }
 });
 
-// --- 4. SUBMIT EXAM & CALCULATE SCORE ---
+// SUBMIT EXAM API
 app.post('/api/submit-exam', async (req, res) => {
   const { answers } = req.body;
-  // Format received: { "101": "Blue", "102": "Paris" }
+  // answers format: { "101": "Paris", "102": "Blue" }
 
   console.log('📝 Submitting Exam...');
 
@@ -195,9 +206,8 @@ app.post('/api/submit-exam', async (req, res) => {
     let score = 0;
     let total = Object.keys(answers).length;
 
-    // Loop through every answer the student submitted
+    // Iterate through user answers and check against DB
     for (const [questionId, userOption] of Object.entries(answers)) {
-      // Fetch the CORRECT answer for this specific question ID
       const result = await pool
         .request()
         .input('QID', sql.Int, questionId)
@@ -208,14 +218,14 @@ app.post('/api/submit-exam', async (req, res) => {
       if (result.recordset.length > 0) {
         const dbCorrectAnswer = result.recordset[0].correctanswer;
 
-        // Compare User Answer vs DB Answer (Trimming spaces to be safe)
+        // Compare (Trim spaces to avoid errors like "Answer " vs "Answer")
         if (String(userOption).trim() === String(dbCorrectAnswer).trim()) {
           score++;
         }
       }
     }
 
-    // Determine Feedback Message
+    // Determine Message
     const percentage = total === 0 ? 0 : (score / total) * 100;
     let message = 'Keep Trying!';
     if (percentage >= 80) message = 'Excellent Work!';
